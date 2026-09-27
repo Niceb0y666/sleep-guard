@@ -459,6 +459,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for label in [descriptionLabel, recoveryLabel, permissionLabel, loginHint, historyLabel] {
             label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
+        for view in stack.arrangedSubviews where view is NSBox {
+            view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
     }
 
     private func button(_ title: String, _ action: Selector) -> NSButton {
@@ -471,7 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let box = NSBox()
         box.boxType = .separator
         box.translatesAutoresizingMaskIntoConstraints = false
-        box.widthAnchor.constraint(equalTo: descriptionLabel.widthAnchor).isActive = true
+        box.heightAnchor.constraint(equalToConstant: 1).isActive = true
         return box
     }
 

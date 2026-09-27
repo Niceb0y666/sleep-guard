@@ -22,7 +22,7 @@
 
 - macOS 13 或更高版本。
 - 构建需要 Xcode Command Line Tools 或完整 Xcode，以及可用的 macOS SDK。
-- 默认构建当前主机架构。Apple Silicon 已完成本地构建，v1.0.0 已做运行检查；v1.1.0 新界面仍待实机验收，Intel 构建和 macOS 13 实机运行尚未验证。
+- 默认构建当前主机架构。Apple Silicon 已完成本地构建和 v1.1.0 允许状态完整窗口、手动刷新检查；长错误滚动与真实恢复未测，Intel 构建和 macOS 13 实机运行尚未验证。
 
 ## 下载应用
 
