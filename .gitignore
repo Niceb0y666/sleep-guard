@@ -1,0 +1,8 @@
+.DS_Store
+._*
+.build/
+dist/
+*.app/
+*.zip
+swift-module-cache/
+power-monitor-tests
