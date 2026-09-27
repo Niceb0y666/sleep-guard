@@ -11,7 +11,7 @@ sdk_path="$(xcrun --show-sdk-path)"
 mkdir -p "$build_dir/module-cache" "$build_dir/AppIcon.iconset" "$app/Contents/MacOS" "$app/Contents/Resources"
 "$swift_compiler" -swift-version 5 -O -target "$architecture-apple-macosx13.0" -sdk "$sdk_path" \
   -module-cache-path "$build_dir/module-cache" \
-  "$source_dir/PowerMonitor.swift" "$source_dir/App.swift" \
+  "$source_dir/PowerMonitor.swift" "$source_dir/SleepRecovery.swift" "$source_dir/RecoveryPresentation.swift" "$source_dir/App.swift" \
   -framework AppKit -framework UserNotifications -framework ServiceManagement \
   -o "$app/Contents/MacOS/SleepGuard"
 cp "$source_dir/Info.plist" "$app/Contents/Info.plist"

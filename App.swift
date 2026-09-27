@@ -2,6 +2,10 @@ import AppKit
 import UserNotifications
 import ServiceManagement
 
+private final class FlippedContentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 // Monitors the global SleepDisabled switch; it does not assert that the Mac is asleep.
 @main
 struct SleepGuardMain {
@@ -33,6 +37,11 @@ struct SleepGuardMain {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuDelegate {
     private let monitor = PowerMonitor()
+    private let verificationMonitor = PowerMonitor()
+    private let recovery = SleepRecovery()
+    private var recoveryInProgress = false
+    private var recoveryMessage: String?
+    private var checkGeneration = 0
     private let defaults = UserDefaults.standard
     private let notifications = UNUserNotificationCenter.current()
     private var item: NSStatusItem!
@@ -61,6 +70,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let intervalPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let notificationButton = NSButton(title: "启用通知", target: nil, action: nil)
     private let loginHint = NSTextField(wrappingLabelWithString: "")
+    private let recoveryButton = NSButton(title: "恢复休眠", target: nil, action: nil)
+    private let recoveryLabel = NSTextField(wrappingLabelWithString: "")
     private static let reminderMinutes = [0, 5, 15, 30, 60]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -103,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        recovery.cancel()
         timer?.invalidate()
         observers.forEach {
             NotificationCenter.default.removeObserver($0)
@@ -123,7 +135,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc private func checkNow(_ sender: Any?) { check() }
 
     private func check() {
-        monitor.check { [weak self] reading in self?.accept(reading) }
+        guard !recoveryInProgress else { return }
+        let generation = checkGeneration
+        monitor.check { [weak self] reading in
+            guard let self = self, self.checkGeneration == generation, !self.recoveryInProgress else { return }
+            self.accept(reading)
+        }
     }
 
     private func accept(_ reading: SleepCheckResult) {
@@ -285,7 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         addMenu("马上检测", action: #selector(checkNow(_:)))
         addMenu("状态与设置…", action: #selector(showWindow(_:)))
         addMenu("测试提醒", action: #selector(testNotification(_:)))
-        addMenu("恢复休眠说明…", action: #selector(recoveryInstructions(_:)))
+        addMenu(recoveryInProgress ? "正在恢复休眠…" : "恢复休眠", action: #selector(restoreSleep(_:)), enabled: !recoveryInProgress && result?.mode != .allowed)
         menu.addItem(.separator())
         addMenu("退出休眠哨兵", action: #selector(quit(_:)), key: "q")
         titleLabel.stringValue = title
@@ -300,6 +317,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationButton.title = notificationStatus == .notDetermined ? "启用通知" : "通知设置…"
         if let index = Self.reminderMinutes.firstIndex(of: defaults.integer(forKey: "reminderMinutes")) { intervalPopup.selectItem(at: index) }
         historyLabel.stringValue = history.isEmpty ? "尚无状态变化记录" : history.joined(separator: "\n")
+        recoveryButton.title = recoveryInProgress ? "正在恢复…" : "恢复休眠"
+        recoveryButton.isEnabled = !recoveryInProgress && result?.mode != .allowed
+        recoveryLabel.stringValue = recoveryMessage ?? (result?.mode == .allowed
+            ? "当前已允许休眠，无需恢复。"
+            : "点击“恢复休眠”，按 macOS 提示完成管理员授权；无需打开终端。")
         switch SMAppService.mainApp.status {
         case .enabled: loginToggle.state = .on; loginHint.stringValue = "下次登录后自动监测。"
         case .requiresApproval: loginToggle.state = .mixed; loginHint.stringValue = "启动项等待批准，请前往系统设置 → 通用 → 登录项。"
@@ -334,23 +356,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func buildWindow() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 740),
+        let availableHeight = NSScreen.main?.visibleFrame.height ?? 900
+        let windowHeight = min(840, max(480, availableHeight - 80))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: windowHeight),
                               styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "休眠哨兵"
         window.isReleasedWhenClosed = false
         window.center()
         self.window = window
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        let document = FlippedContentView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = document
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView?.addSubview(stack)
+        document.addSubview(stack)
         if let content = window.contentView {
+            content.addSubview(scrollView)
             NSLayoutConstraint.activate([
-                stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 28),
-                stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
-                stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 24)
+                scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+                scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+                scrollView.topAnchor.constraint(equalTo: content.topAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+                document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+                stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 28),
+                stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -28),
+                stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 24),
+                stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -24)
             ])
         }
         let brand = NSTextField(labelWithString: "休眠哨兵  /  Sleep Guard")
@@ -369,8 +408,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let actions = NSStackView()
         actions.spacing = 10
         actions.addArrangedSubview(button("马上检测", #selector(checkNow(_:))))
-        actions.addArrangedSubview(button("恢复休眠说明…", #selector(recoveryInstructions(_:))))
+        recoveryButton.target = self
+        recoveryButton.action = #selector(restoreSleep(_:))
+        recoveryButton.bezelStyle = .rounded
+        actions.addArrangedSubview(recoveryButton)
         stack.addArrangedSubview(actions)
+        recoveryLabel.font = .systemFont(ofSize: 12)
+        recoveryLabel.textColor = .secondaryLabelColor
+        recoveryLabel.preferredMaxLayoutWidth = 444
+        stack.addArrangedSubview(recoveryLabel)
         stack.addArrangedSubview(divider())
         notificationsToggle.target = self
         notificationsToggle.action = #selector(toggleNotifications(_:))
@@ -410,6 +456,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         historyLabel.textColor = .secondaryLabelColor
         historyLabel.preferredMaxLayoutWidth = 444
         stack.addArrangedSubview(historyLabel)
+        for label in [descriptionLabel, recoveryLabel, permissionLabel, loginHint, historyLabel] {
+            label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
     }
 
     private func button(_ title: String, _ action: Selector) -> NSButton {
@@ -422,7 +471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let box = NSBox()
         box.boxType = .separator
         box.translatesAutoresizingMaskIntoConstraints = false
-        box.widthAnchor.constraint(equalToConstant: 444).isActive = true
+        box.widthAnchor.constraint(equalTo: descriptionLabel.widthAnchor).isActive = true
         return box
     }
 
@@ -472,16 +521,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateUI()
     }
 
-    @objc private func recoveryInstructions(_ sender: Any?) {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "恢复系统休眠"
-        alert.informativeText = "在终端执行下面的命令，并按提示输入 Mac 登录密码：\n\nsudo pmset -a disablesleep 0\n\n完成后点击“马上检测”。此应用监测设置，不会自行更改电源设置。"
-        alert.addButton(withTitle: "复制命令")
-        alert.addButton(withTitle: "关闭")
-        if alert.runModal() == .alertFirstButtonReturn {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString("sudo pmset -a disablesleep 0", forType: .string)
+    @objc private func restoreSleep(_ sender: Any?) {
+        guard !recoveryInProgress else { return }
+        guard result?.mode != .allowed else { return }
+        recoveryInProgress = true
+        // Ignore callbacks from any query that began before this user action.
+        checkGeneration += 1
+        recoveryMessage = "等待 macOS 管理员授权…请在系统窗口完成授权，或选择取消。"
+        showWindow(nil)
+        recovery.restore { [weak self] execution in
+            guard let self = self else { return }
+            self.recoveryMessage = "正在重新检测休眠设置…"
+            self.updateUI()
+            // This dedicated monitor never shares a pre-write polling query.
+            // Recheck after errors too: a timed-out authorization process may
+            // already have started the fixed system command.
+            self.verificationMonitor.check { [weak self] reading in
+                guard let self = self else { return }
+                self.recoveryInProgress = false
+                let message = RecoveryPresentation.message(for: execution.outcome, mode: reading.mode)
+                self.recoveryMessage = "\(self.formatTime(reading.checkedAt))  \(message)"
+                self.record(message, at: reading.checkedAt)
+                self.accept(reading)
+            }
         }
     }
 
