@@ -23,6 +23,12 @@
 - 构建需要 Xcode Command Line Tools 或完整 Xcode，以及可用的 macOS SDK。
 - 默认构建当前主机架构。Apple Silicon 已完成本地构建与运行检查；Intel 构建和 macOS 13 实机运行尚未验证。
 
+## 下载应用
+
+从[最新 Release](https://github.com/Niceb0y666/sleep-guard/releases/latest) 下载 `SleepGuard-1.0.0-macOS-arm64.zip`。安装包无需编译；解压后将“休眠哨兵.app”拖入“应用程序”文件夹并打开。
+
+该安装包适用于 Apple Silicon（arm64）Mac，要求 macOS 13 或更高版本。仓库当前为私有，查看 Release 和下载安装包需要仓库访问权限。签名与公证限制见下方[构建说明](#从源码构建)。
+
 ## 从源码构建
 
 ```bash
